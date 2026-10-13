@@ -13,6 +13,8 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -31,7 +33,10 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlin.random.Random
+import io.github.jan.supabase.auth.auth
+import io.github.jan.supabase.auth.providers.builtin.Email
 
 // ---------- Data ----------
 val Palette = listOf(0xFF000000, 0xFFFFFFFF, 0xFFFF3B7F, 0xFFFFC53D, 0xFF3DDC84, 0xFF3D8BFF, 0xFFA855F7, 0xFFFF7A3D).map { it.toInt() }
@@ -124,9 +129,123 @@ fun PBtn(text: String, modifier: Modifier = Modifier, filled: Boolean = true, on
 @Composable fun H(t: String) = Text(t.uppercase(), fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 14.sp, modifier = Modifier.padding(vertical = 8.dp))
 @Composable fun T(t: String, s: Int = 13, c: Color = Color.Unspecified) = Text(t, fontFamily = Mono, fontSize = s.sp, color = c)
 
+// ---------- Auth Page (Supabase Integration Ready) ----------
+@Composable
+fun AuthPage(onLoggedIn: () -> Unit) {
+    var isSignUp by remember { mutableStateOf(false) }
+    var email by remember { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
+    var error by remember { mutableStateOf<String?>(null) }
+    var loading by remember { mutableStateOf(false) }
+    val coroutineScope = rememberCoroutineScope()
+
+    Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+        Column(
+            Modifier.fillMaxSize().padding(24.dp),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Image(
+                painterResource(R.drawable.logo),
+                contentDescription = "Pixit",
+                modifier = Modifier.height(48.dp),
+                colorFilter = androidx.compose.ui.graphics.ColorFilter.tint(MaterialTheme.colorScheme.onBackground),
+                contentScale = ContentScale.Fit
+            )
+            Spacer(Modifier.height(8.dp))
+            T(if (isSignUp) "Welcome to Pixel World" else "Welcome back to Pixel world!", 14, Pink)
+            Spacer(Modifier.height(32.dp))
+
+            OutlinedTextField(
+                value = email,
+                onValueChange = { email = it },
+                modifier = Modifier.fillMaxWidth(),
+                placeholder = { T("Email") },
+                singleLine = true,
+                shape = androidx.compose.ui.graphics.RectangleShape
+            )
+            Spacer(Modifier.height(12.dp))
+            OutlinedTextField(
+                value = password,
+                onValueChange = { password = it },
+                modifier = Modifier.fillMaxWidth(),
+                placeholder = { T("Password") },
+                singleLine = true,
+                visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                shape = androidx.compose.ui.graphics.RectangleShape
+            )
+
+            if (error != null) {
+                Spacer(Modifier.height(8.dp))
+                T(error!!, 12, Color.Red)
+            }
+
+            Spacer(Modifier.height(24.dp))
+
+            PBtn(
+                text = if (loading) "PLEASE WAIT..." else if (isSignUp) "SIGN UP" else "LOG IN",
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                if (email.isBlank() || password.isBlank()) {
+                    error = "Please fill in all fields"
+                    return@PBtn
+                }
+                loading = true
+                error = null
+                coroutineScope.launch {
+                    try {
+                        if (isSignUp) {
+                            supabase.auth.signUpWith(Email) {
+                                this.email = email
+                                this.password = password
+                            }
+                        } else {
+                            supabase.auth.signInWith(Email) {
+                                this.email = email
+                                this.password = password
+                            }
+                        }
+                        onLoggedIn()
+                    } catch (e: Exception) {
+                        error = e.localizedMessage ?: "Authentication failed"
+                    } finally {
+                        loading = false
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(16.dp))
+
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                T(if (isSignUp) "Already have an account? " else "Don't have an account? ", 12)
+                Text(
+                    text = if (isSignUp) "Log In" else "Sign Up",
+                    fontFamily = Mono,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 12.sp,
+                    color = Pink,
+                    modifier = Modifier.clickable { isSignUp = !isSignUp; error = null }
+                )
+            }
+        }
+    }
+}
+
 // ---------- App shell ----------
 class MainActivity : ComponentActivity() {
-    override fun onCreate(savedInstanceState: Bundle?) { super.onCreate(savedInstanceState); setContent { App() } }
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        setContent {
+            var isLoggedIn by rememberSaveable { mutableStateOf(false) }
+            PixitTheme(true) {
+                if (!isLoggedIn) {
+                    AuthPage(onLoggedIn = { isLoggedIn = true })
+                } else {
+                    App()
+                }
+            }
+        }
+    }
 }
 
 @Composable
@@ -134,6 +253,19 @@ fun App() {
     var dark by rememberSaveable { mutableStateOf(true) }
     var tab by rememberSaveable { mutableIntStateOf(0) }
     var overlay by rememberSaveable { mutableStateOf<String?>(null) }
+    val pagerState = rememberPagerState(initialPage = tab, pageCount = { 5 })
+    val coroutineScope = rememberCoroutineScope()
+
+    LaunchedEffect(tab) {
+        if (pagerState.currentPage != tab) {
+            pagerState.scrollToPage(tab)
+        }
+    }
+
+    LaunchedEffect(pagerState.currentPage) {
+        tab = pagerState.currentPage
+    }
+
     PixitTheme(dark) {
         val fg = MaterialTheme.colorScheme.onBackground
         Scaffold(containerColor = MaterialTheme.colorScheme.background,
@@ -148,7 +280,11 @@ fun App() {
                 Row(Modifier.fillMaxWidth().navigationBarsPadding().height(60.dp).drawTop(fg), Arrangement.SpaceAround, Alignment.CenterVertically) {
                     listOf(R.drawable.ic_home, R.drawable.ic_explore, R.drawable.ic_chat, R.drawable.ic_like, R.drawable.ic_games).forEachIndexed { i, ic ->
                         val on = tab == i && overlay == null
-                        Box(Modifier.weight(1f).fillMaxHeight().clickable { tab = i; overlay = null }, Alignment.Center) {
+                        Box(Modifier.weight(1f).fillMaxHeight().clickable {
+                            tab = i
+                            overlay = null
+                            coroutineScope.launch { pagerState.scrollToPage(i) }
+                        }, Alignment.Center) {
                             Ico(ic, 30.dp, if (on) Pink else fg.copy(alpha = .6f))
                             if (on) Box(Modifier.align(Alignment.BottomCenter).size(16.dp, 4.dp).background(Pink))
                         }
@@ -158,8 +294,20 @@ fun App() {
             Box(Modifier.padding(pad).fillMaxSize()) {
                 when (overlay) {
                     "profile" -> Profile(dark, { dark = it }) { overlay = null }
-                    "editor" -> Editor { overlay = null; tab = 0 }
-                    else -> when (tab) { 0 -> Home(); 1 -> Explore(); 2 -> Chat(); 3 -> Notifications(); else -> Games() }
+                    "editor" -> Editor {
+                        overlay = null
+                        tab = 0
+                        coroutineScope.launch { pagerState.scrollToPage(0) }
+                    }
+                    else -> HorizontalPager(state = pagerState, beyondViewportPageCount = 4, modifier = Modifier.fillMaxSize()) { page ->
+                        when (page) {
+                            0 -> Home()
+                            1 -> Explore()
+                            2 -> Chat()
+                            3 -> Notifications()
+                            else -> Games()
+                        }
+                    }
                 }
             }
         }
@@ -172,9 +320,10 @@ fun Modifier.drawTop(c: Color) = drawBehind { drawRect(c, Offset.Zero, Size(size
 @Composable
 fun PostCard(p: Post) {
     val fg = MaterialTheme.colorScheme.onBackground
+    val spritePx = remember(p.author) { sprite(p.author.hashCode(), 8) }
     Column(Modifier.fillMaxWidth().padding(12.dp, 6.dp).border(2.dp, fg).padding(10.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            PixelGrid(sprite(p.author.hashCode(), 8), 8, Modifier.size(28.dp)); Spacer(Modifier.width(8.dp))
+            PixelGrid(spritePx, 8, Modifier.size(28.dp)); Spacer(Modifier.width(8.dp))
             T("@${p.author}", 14); Spacer(Modifier.weight(1f))
             if (p.ephemeral) T("⏳ 24h", 11, Pink)
         }
@@ -186,7 +335,7 @@ fun PostCard(p: Post) {
         }
     }
 }
-@Composable fun Home() = LazyColumn { items(Store.posts.toList()) { PostCard(it) } }
+@Composable fun Home() = LazyColumn { items(Store.posts.toList(), key = { it.id }) { PostCard(it) } }
 
 // ---------- Editor ----------
 @Composable
@@ -211,24 +360,32 @@ fun Editor(done: () -> Unit) {
 @Composable
 fun Explore() {
     var q by remember { mutableStateOf("") }; var f by remember { mutableStateOf("All") }
-    val list = Store.posts.filter { (f == "All" || it.cat == f) && (q.isBlank() || it.author.contains(q, true) || it.cat.contains(q, true)) }.sortedByDescending { it.likes }
+    val list by remember {
+        derivedStateOf {
+            val query = q
+            val filter = f
+            Store.posts.filter { (filter == "All" || it.cat == filter) && (query.isBlank() || it.author.contains(query, true) || it.cat.contains(query, true)) }
+                .sortedByDescending { it.likes }
+        }
+    }
     Column(Modifier.fillMaxSize().padding(12.dp)) {
         OutlinedTextField(q, { q = it }, Modifier.fillMaxWidth(), placeholder = { T("search art & creators") }, singleLine = true,
             leadingIcon = { Ico(R.drawable.ic_search, 20.dp) }, shape = androidx.compose.ui.graphics.RectangleShape)
         Row(Modifier.padding(vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) { (listOf("All") + Store.cats).forEach { c -> PBtn(c, filled = c == f) { f = c } } }
         H("Trending creators")
         LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            items(Store.users) { u ->
+            items(Store.users, key = { it }) { u ->
                 val isF = u in Store.friends
+                val userSprite = remember(u) { sprite(u.hashCode(), 8) }
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    PixelGrid(sprite(u.hashCode(), 8), 8, Modifier.size(56.dp)); T(u, 11)
+                    PixelGrid(userSprite, 8, Modifier.size(56.dp)); T(u, 11)
                     PBtn(if (isF) "−" else "+", filled = !isF) { if (isF) Store.friends.remove(u) else Store.friends.add(u) }
                 }
             }
         }
         H("Trending pixel art")
         LazyVerticalGrid(GridCells.Fixed(2), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            gridItems(list) { p -> Column { PixelGrid(p.px, if (p.px.size == 256) 16 else 12, Modifier.fillMaxWidth()); T("@${p.author} ♥${p.likes}", 11) } }
+            gridItems(list, key = { it.id }) { p -> Column { PixelGrid(p.px, if (p.px.size == 256) 16 else 12, Modifier.fillMaxWidth()); T("@${p.author} ♥${p.likes}", 11) } }
         }
     }
 }
@@ -241,9 +398,10 @@ fun Chat() {
         Column(Modifier.fillMaxSize().padding(12.dp)) {
             H("Chats")
             if (Store.friends.isEmpty()) T("Add friends in Explore!")
-            LazyColumn { items(Store.friends.toList()) { u ->
+            LazyColumn { items(Store.friends.toList(), key = { it }) { u ->
+                val friendSprite = remember(u) { sprite(u.hashCode(), 8) }
                 Row(Modifier.fillMaxWidth().clickable { open = u }.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    PixelGrid(sprite(u.hashCode(), 8), 8, Modifier.size(40.dp)); Spacer(Modifier.width(10.dp)); T("@$u", 15)
+                    PixelGrid(friendSprite, 8, Modifier.size(40.dp)); Spacer(Modifier.width(10.dp)); T("@$u", 15)
                 }
             } }
         }
@@ -274,8 +432,9 @@ fun ChatRoom(u: String, back: () -> Unit) {
                 }
             }
         } }
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) { items((101..108).toList()) { s ->
-            PixelGrid(sprite(s), 12, Modifier.size(40.dp).clickable { msgs.add(Msg(true, art = sprite(s))) })
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) { items((101..108).toList(), key = { it }) { s ->
+            val stampSprite = remember(s) { sprite(s) }
+            PixelGrid(stampSprite, 12, Modifier.size(40.dp).clickable { msgs.add(Msg(true, art = stampSprite)) })
         } }
         Row(verticalAlignment = Alignment.CenterVertically) {
             OutlinedTextField(text, { text = it }, Modifier.weight(1f), singleLine = true, shape = androidx.compose.ui.graphics.RectangleShape)
@@ -288,9 +447,10 @@ fun ChatRoom(u: String, back: () -> Unit) {
 @Composable
 fun Notifications() = Column(Modifier.fillMaxSize().padding(12.dp)) {
     H("Likes & activity")
-    LazyColumn { items(Store.users.take(6)) { u ->
+    LazyColumn { items(Store.users.take(6), key = { it }) { u ->
+        val userSprite = remember(u) { sprite(u.hashCode(), 8) }
         Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-            Ico(R.drawable.ic_like, 22.dp, Pink); Spacer(Modifier.width(8.dp)); PixelGrid(sprite(u.hashCode(), 8), 8, Modifier.size(32.dp)); Spacer(Modifier.width(8.dp))
+            Ico(R.drawable.ic_like, 22.dp, Pink); Spacer(Modifier.width(8.dp)); PixelGrid(userSprite, 8, Modifier.size(32.dp)); Spacer(Modifier.width(8.dp))
             T("@$u liked your pixel", 13)
         }
     } }
@@ -375,10 +535,24 @@ fun Profile(dark: Boolean, setDark: (Boolean) -> Unit, back: () -> Unit) {
         item { T("@me · ${Store.friends.size} friends · ${Store.xp} XP", 14, Pink)
             Row(verticalAlignment = Alignment.CenterVertically) { Switch(dark, setDark); Spacer(Modifier.width(8.dp)); T(if (dark) "Dark (black)" else "Light (white)") } }
         item { H("Trophies"); if (trophies.isEmpty()) T("Play games, post & add friends to earn trophies") else trophies.forEach { T("🏆 $it", 14) } }
-        item { H("Collectibles"); LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) { items((201..200 + 2 + trophies.size * 2).toList()) { PixelGrid(sprite(it), 12, Modifier.size(48.dp)) } } }
+        item {
+            H("Collectibles")
+            val collectibleItems = (201..200 + 2 + trophies.size * 2).toList()
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                items(collectibleItems, key = { it }) { itemSeed ->
+                    val collectibleSprite = remember(itemSeed) { sprite(itemSeed) }
+                    PixelGrid(collectibleSprite, 12, Modifier.size(48.dp))
+                }
+            }
+        }
         item { H("Friends") }
-        items(Store.friends.toList()) { u -> Row(verticalAlignment = Alignment.CenterVertically) { PixelGrid(sprite(u.hashCode(), 8), 8, Modifier.size(32.dp)); Spacer(Modifier.width(8.dp)); T("@$u", 14); Spacer(Modifier.weight(1f)); PBtn("REMOVE", filled = false) { Store.friends.remove(u) } } }
+        items(Store.friends.toList(), key = { it }) { u ->
+            val friendSprite = remember(u) { sprite(u.hashCode(), 8) }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                PixelGrid(friendSprite, 8, Modifier.size(32.dp)); Spacer(Modifier.width(8.dp)); T("@$u", 14); Spacer(Modifier.weight(1f)); PBtn("REMOVE", filled = false) { Store.friends.remove(u) }
+            }
+        }
         item { H("My posts") }
-        items(Store.posts.filter { it.author == "me" }) { PostCard(it) }
+        items(Store.posts.filter { it.author == "me" }, key = { it.id }) { PostCard(it) }
     }
 }
