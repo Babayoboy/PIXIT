@@ -34,9 +34,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
 import kotlin.random.Random
-import io.github.jan.supabase.auth.auth
-import io.github.jan.supabase.auth.providers.builtin.Email
+import com.google.firebase.auth.FirebaseAuth
 
 // ---------- Data ----------
 val Palette = listOf(0xFF000000, 0xFFFFFFFF, 0xFFFF3B7F, 0xFFFFC53D, 0xFF3DDC84, 0xFF3D8BFF, 0xFFA855F7, 0xFFFF7A3D).map { it.toInt() }
@@ -129,7 +129,7 @@ fun PBtn(text: String, modifier: Modifier = Modifier, filled: Boolean = true, on
 @Composable fun H(t: String) = Text(t.uppercase(), fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 14.sp, modifier = Modifier.padding(vertical = 8.dp))
 @Composable fun T(t: String, s: Int = 13, c: Color = Color.Unspecified) = Text(t, fontFamily = Mono, fontSize = s.sp, color = c)
 
-// ---------- Auth Page (Supabase Integration Ready) ----------
+// ---------- Auth Page (Firebase Authentication) ----------
 @Composable
 fun AuthPage(onLoggedIn: () -> Unit) {
     var isSignUp by remember { mutableStateOf(false) }
@@ -194,16 +194,11 @@ fun AuthPage(onLoggedIn: () -> Unit) {
                 error = null
                 coroutineScope.launch {
                     try {
+                        val auth = FirebaseAuth.getInstance()
                         if (isSignUp) {
-                            supabase.auth.signUpWith(Email) {
-                                this.email = email
-                                this.password = password
-                            }
+                            auth.createUserWithEmailAndPassword(email, password).await()
                         } else {
-                            supabase.auth.signInWith(Email) {
-                                this.email = email
-                                this.password = password
-                            }
+                            auth.signInWithEmailAndPassword(email, password).await()
                         }
                         onLoggedIn()
                     } catch (e: Exception) {
@@ -236,7 +231,8 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            var isLoggedIn by rememberSaveable { mutableStateOf(false) }
+            val auth = FirebaseAuth.getInstance()
+            var isLoggedIn by rememberSaveable { mutableStateOf(auth.currentUser != null) }
             PixitTheme(true) {
                 if (!isLoggedIn) {
                     AuthPage(onLoggedIn = { isLoggedIn = true })
